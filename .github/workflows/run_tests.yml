@@ -22,9 +22,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     outputs:
-      good_result: ${{ steps.good.outputs.result }}
-      bad_result: ${{ steps.bad.outputs.result }}
-      all_result: ${{ steps.all.outputs.result }}
+      good_result: ${{ steps.run_good.outputs.result }}
+      bad_result: ${{ steps.run_bad.outputs.result }}
+      all_result: ${{ steps.run_all.outputs.result }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,31 +38,37 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run 'good' tests
-        id: good
+        id: run_good
         if: ${{ github.event.inputs.deployment_target == 'good' }}
         run: |
           pytest -m good --alluredir=allure-results || echo "failure" > result.txt
-        continue-on-error: true
-        outputs:
-          result: ${{ steps.good.outputs.result }}
+          if [ -f result.txt ]; then
+            echo "result=failure" >> $GITHUB_OUTPUT
+          else
+            echo "result=success" >> $GITHUB_OUTPUT
+          fi
 
       - name: Run 'bad' tests
-        id: bad
+        id: run_bad
         if: ${{ github.event.inputs.deployment_target == 'bad' }}
         run: |
           pytest -m bad --alluredir=allure-results || echo "failure" > result.txt
-        continue-on-error: true
-        outputs:
-          result: ${{ steps.bad.outputs.result }}
+          if [ -f result.txt ]; then
+            echo "result=failure" >> $GITHUB_OUTPUT
+          else
+            echo "result=success" >> $GITHUB_OUTPUT
+          fi
 
       - name: Run all tests
-        id: all
+        id: run_all
         if: ${{ github.event.inputs.deployment_target == 'all' }}
         run: |
           pytest --alluredir=allure-results || echo "failure" > result.txt
-        continue-on-error: true
-        outputs:
-          result: ${{ steps.all.outputs.result }}
+          if [ -f result.txt ]; then
+            echo "result=failure" >> $GITHUB_OUTPUT
+          else
+            echo "result=success" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup Java
         uses: actions/setup-java@v4
