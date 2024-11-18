@@ -4,15 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       deployment_target:
-        description: Choose target
+        description: "Choose target"
         required: true
-        default: good
+        default: "good"
         type: choice
         options:
           - good
           - bad
           - all
-
 
 permissions:
   contents: read
@@ -23,65 +22,94 @@ jobs:
   test:
     runs-on: ubuntu-latest
     outputs:
-      good: ${{ steps.good.outcome }}
-      bad: ${{ steps.bad.outcome }}
-      all: ${{ steps.all.outcome }}
+      good_result: ${{ steps.good.outputs.result }}
+      bad_result: ${{ steps.bad.outputs.result }}
+      all_result: ${{ steps.all.outputs.result }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: setup Python
+
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - name: install dependencies
+
+      - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: good
+
+      - name: Run 'good' tests
         id: good
-        if: ${{ .github.event.inputs.deployment_target == 'good' }}
-        run: pytest -m good --alluredir=allure-results
+        if: ${{ github.event.inputs.deployment_target == 'good' }}
+        run: |
+          pytest -m good --alluredir=allure-results || echo "failure" > result.txt
         continue-on-error: true
-      - name: bad
+        outputs:
+          result: ${{ steps.good.outputs.result }}
+
+      - name: Run 'bad' tests
         id: bad
-        if: ${{ .github.event.inputs.deployment_target == 'bad' }}
-        run: pytest -m bad --alluredir=allure-results
+        if: ${{ github.event.inputs.deployment_target == 'bad' }}
+        run: |
+          pytest -m bad --alluredir=allure-results || echo "failure" > result.txt
         continue-on-error: true
-      - name: all
+        outputs:
+          result: ${{ steps.bad.outputs.result }}
+
+      - name: Run all tests
         id: all
-        if: ${{ .github.event.inputs.deployment_target == 'all' }}
-        run: pytest --alluredir=allure-results
+        if: ${{ github.event.inputs.deployment_target == 'all' }}
+        run: |
+          pytest --alluredir=allure-results || echo "failure" > result.txt
         continue-on-error: true
-      - uses: actions/setup-java@v4
+        outputs:
+          result: ${{ steps.all.outputs.result }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          distribution: 'microsoft' # See 'Supported distributions' for available options
+          distribution: 'microsoft'
           java-version: '17'
-      - run: sudo wget https://.github.com/allure-framework/allure2/releases/download/2.23.1/allure-2.23.1.tgz && sudo tar -zxvf allure-2.23.1.tgz -C /opt/ && sudo ln -s /opt/allure-2.23.1/bin/allure /usr/bin/allure
-      - run: allure generate -c allure-results -o _site
+
+      - name: Install Allure
+        run: |
+          sudo wget https://github.com/allure-framework/allure2/releases/download/2.23.1/allure-2.23.1.tgz
+          sudo tar -zxvf allure-2.23.1.tgz -C /opt/
+          sudo ln -s /opt/allure-2.23.1/bin/allure /usr/bin/allure
+
+      - name: Generate Allure report
+        run: allure generate -c allure-results -o _site
+
       - name: Store generated report
         uses: actions/upload-artifact@v4
         with:
           name: _site
-          path:
-            _site
+          path: _site
           retention-days: 1
-
 
   publish-report:
     runs-on: ubuntu-latest
     needs: test
-    name: Report publication
     steps:
       - name: Download all workflow run artifacts
         uses: actions/download-artifact@v4
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-      - name: success
-        if: needs.test.outputs.good != 'failure' && needs.test.outputs.bad != 'failure' && needs.test.outputs.all != 'failure'
+
+      - name: Notify success
+        if: ${{ needs.test.outputs.good_result != 'failure' && needs.test.outputs.bad_result != 'failure' && needs.test.outputs.all_result != 'failure' }}
         run: |
-          curl --location 'https://api.telegram.org/bot${{ secrets.TG }}/sendMessage' --header 'Content-Type: application/json' --data '{"chat_id": 5986856819, "text": "Tests passed. Report: https://senior-tester.github.io/notify/"}'
-      - name: failure
-        if: needs.test.outputs.good == 'failure' || needs.test.outputs.bad == 'failure' || needs.test.outputs.all == 'failure'
+          curl --location "https://api.telegram.org/bot${{ secrets.TG }}/sendMessage" \
+               --header "Content-Type: application/json" \
+               --data '{"chat_id": 5986856819, "text": "Tests passed. Report: https://senior-tester.github.io/notify/"}'
+
+      - name: Notify failure
+        if: ${{ needs.test.outputs.good_result == 'failure' || needs.test.outputs.bad_result == 'failure' || needs.test.outputs.all_result == 'failure' }}
         run: |
-          curl --location 'https://api.telegram.org/bot${{ secrets.TG }}/sendMessage' --header 'Content-Type: application/json' --data '{"chat_id": 5986856819, "text": "Tests FAILED. Report: https://senior-tester.github.io/notify/"}'
+          curl --location "https://api.telegram.org/bot${{ secrets.TG }}/sendMessage" \
+               --header "Content-Type: application/json" \
+               --data '{"chat_id": 5986856819, "text": "Tests FAILED. Report: https://senior-tester.github.io/notify/"}'
